@@ -1,0 +1,44 @@
+name: Apply Cluster changes
+
+on:
+  workflow_call:
+
+jobs:
+  apply-clusters:
+    runs-on: ubuntu-latest
+    env:
+      UPBOUND_ORG_ID: crossplane-by-example
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          ref: main
+      - name: Install Kubectl
+        uses: azure/setup-kubectl@v3
+        id: install-kubectl
+      - name: Install Upbound CLI
+        run: |
+          curl -sL "https://cli.upbound.io" | sh
+          sudo mv up /usr/local/bin/
+      - name: Connect to Upbound using CLI an apply manifests to all of the control planes
+        run: |
+          up login -t ${{ secrets.UPBOUND_TOKEN }}
+          cd .up/clusters
+          for CONTROL_PLANE in */ ; do
+            # Remove trailing slash to get the clean cluster name
+            CONTROL_PLANE=${CONTROL_PLANE%/}
+          
+            # Get the kube config for the specific control plane
+            echo "Fetching kubeconfig for ${CONTROL_PLANE}"
+            up ctp kubeconfig get -a ${{ env.UPBOUND_ORG_ID }} ${CONTROL_PLANE} -f kubeconfig.yaml --token ${{ secrets.UPBOUND_TOKEN }}
+            echo "Applying manifests"
+            if find "$CONTROL_PLANE" -maxdepth 1 -type f -name "*.yaml" | read -r; then
+              kubectl --kubeconfig kubeconfig.yaml apply -f ./${CONTROL_PLANE}/ --recursive
+            else
+              echo "Control plane directory is empty"
+              # exit 1
+            fi
+          done
+
+      
+  
